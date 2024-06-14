@@ -29,6 +29,7 @@ class music(commands.Cog):
         self.change = None
 
         self.queue_message = None
+        self.play_time = 0
 
         #global settings
         f = open('settings.json')
@@ -74,6 +75,7 @@ class music(commands.Cog):
             mm , ss = map(int, res["duration"].split(':'))
             duration = mm*60 + ss
             res = res["link"], res["title"], duration, res["thumbnails"][0]["url"]
+            self.play_time += duration
         if (direct):
             return res
         else:
@@ -85,6 +87,7 @@ class music(commands.Cog):
         i = 0
 
         fetched_data = self.sp.playlist_tracks(URI, offset=1+batch*25)["items"] if mode else self.sp.album_tracks(URI, offset=1+batch*25)["items"]
+        track = self.sp.album_tracks(URI)["items"][0]
         for track in fetched_data:
             tracks.append(track)
             i += 1
@@ -146,12 +149,14 @@ class music(commands.Cog):
 
         if (len(self.song_queue) > 24):
             if (len(self.queue_for_queue) > 0):
-                self.embed_queue.set_footer(text="Queued tracks: " + str(len(self.song_queue)) + "\nOnly first 24 tracks are shown.\nAdding to the queue in progress. Tracks left to add: " + str(len(self.queue_for_queue)))
+                self.embed_queue.set_footer(text="Queued tracks: " + str(len(self.song_queue)) + "\nOnly first 24 tracks are shown.\nAdding to the queue in progress. Tracks left to add: " + str(len(self.queue_for_queue)) + "\nTime left: " + sec_min(self.play_time) + " s")
             else:    
-                self.embed_queue.set_footer(text="Queued tracks: " + str(len(self.song_queue)) + "\nOnly first 24 tracks are shown.")
+                self.embed_queue.set_footer(text="Queued tracks: " + str(len(self.song_queue)) + "\nOnly first 24 tracks are shown.\nTime left: " + sec_min(self.play_time) + " s")
         else:
             if (len(self.queue_for_queue) > 0):
-                self.embed_queue.set_footer(text="Queued tracks: " + str(len(self.song_queue)) + "\nAdding to the queue in progress. Tracks left to add: " + str(len(self.queue_for_queue)))
+                self.embed_queue.set_footer(text="Queued tracks: " + str(len(self.song_queue)) + "\nAdding to the queue in progress. Tracks left to add: " + str(len(self.queue_for_queue)) + "\nTime left: " + sec_min(self.play_time) + " s")
+            else:
+                self.embed_queue.set_footer(text="Time left: " + sec_min(self.play_time) + " s")
         
         if (len(self.song_queue)) >= 1:
             for song in self.song_queue:
@@ -166,13 +171,18 @@ class music(commands.Cog):
         if (self.queue_message):
             await self.queue_message.edit(embed=self.embed_queue)
         else:
-            button_view=View_queue_buttons(self, self.bot, self.ctx.guild, self.song_queue, self.ctx, None, self.predownloaded, timeout=None)
+            button_view=View_queue_buttons(self, timeout=None)
             self.queue_message = await self.ctx.send(embed=self.embed_queue, view=button_view)
             button_view.queue_message = self.queue_message
 
     #sets "task_done" flag to True after song finishes
     def finished(self):
         self.task_done = True
+
+        #cleanup
+        if(not len(self.song_queue)):
+            self.queue_message = None
+            self.play_time = 0
 
     async def play_task(self, voice, duration, message, name, thumbnail):
         self.task_done = False
@@ -342,7 +352,7 @@ class music(commands.Cog):
                         track = self.sp.album_tracks(URI)["items"][0]
                         self.queue_for_queue.append(track["name"] + " " + track["artists"][0]["name"])
                         for i in range (0, 50):
-                            fetch = threading.Thread(target=self.SPOT_fetch, args=(URI, i, 2))
+                            fetch = threading.Thread(target=self.SPOT_fetch, args=(URI, i, 0))
                             fetch.start()
 
                 except Exception as e:
@@ -354,6 +364,7 @@ class music(commands.Cog):
         file = open(self.database_file,'r+')
 
         #first track, search for details directly
+
         if not(voice and voice.is_connected()):
             url = self.YT_search(self.queue_for_queue.pop(), 1)
             if url[0] not in file.read():
@@ -383,6 +394,7 @@ class music(commands.Cog):
             while (len(self.song_queue) >= 1):
                 self.task_done = False
                 if(not self.on_repeat):
+                    self.play_time -= url[2]
                     try:
                         os.remove('downloaded.m4a')
                     except:
@@ -413,6 +425,20 @@ class music(commands.Cog):
                 await self.send_queue_embed()
 
                 await self.play_task(voice, url[2], message, url[1], url[3])
+
+    @commands.command(name="spot")
+    async def spot(self, ctx:commands.Context, *args):
+        self.ctx = ctx
+        fetch = self.sp.recommendations(seed_genres=['pop'], min_energy=0.90, max_speechiness=0.1, limit=1)
+        print(self.sp.audio_features(fetch["tracks"][0]["uri"]))
+        await self.ctx.send(fetch["tracks"][0]["external_urls"]["spotify"])
+        await ctx.send("Sedí?", view=View_spot_buttons(self, timeout=None))
+    #learning:
+         
+
+
+
+
 
 class View_buttons(discord.ui.View, music):
     def __init__(self, parent, voice_clients, voice_guilt, song_queue, ctx, queue_message, *args, **kwargs):
@@ -468,23 +494,30 @@ class View_buttons(discord.ui.View, music):
         await interaction.response.edit_message(view=self)
 
 class View_queue_buttons(discord.ui.View, music):
-    def __init__(self, parent, bot, voice_guilt, song_queue, ctx, queue_message, predownloaded, *args, **kwargs):
+    def __init__(self, parent, *args, **kwargs):
         super(View_queue_buttons, self).__init__(*args, **kwargs)
-        self.bot = bot
-        self.voice = discord.utils.get(bot.voice_clients, guild=voice_guilt)
-        self.song_queue = song_queue
-        self.ctx = ctx
-        self.queue_message = queue_message
-        self.queue_for_queue = []
         self.parent = parent
 
     @discord.ui.button(label="Shuffle", style=discord.ButtonStyle.grey, emoji="🔀")
     async def shuffle_callback(self, interaction: discord.Interaction, button: discord.ui.button):
-        if (not self.song_queue):
+        if (not self.parent.song_queue):
            await interaction.response.send_message(content="Queue is empty", ephemeral=True, delete_after = 5)
            return
-        await music.shuffle_queue(self)
+        await self.parent.shuffle_queue()
         self.parent.predownloaded = False
+        await interaction.response.defer()
+
+class View_spot_buttons(discord.ui.View):
+    def __init__(self, parent, *args, **kwargs):
+        super(View_spot_buttons, self).__init__(*args, **kwargs)
+        self.parent = parent
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.green, emoji="✅")
+    async def yes_callback(self, interaction: discord.Interaction, button: discord.ui.button):
+        await interaction.response.defer()
+
+    @discord.ui.button(label="No", style=discord.ButtonStyle.grey, emoji="❌")
+    async def no_callback(self, interaction: discord.Interaction, button: discord.ui.button):
         await interaction.response.defer()
 
 #converts seconds to MM:SS format
