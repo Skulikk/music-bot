@@ -12,6 +12,7 @@ import random
 import json
 import spotipy
 import threading
+import csv
 
 class music(commands.Cog):
     def __init__(self, bot):
@@ -87,7 +88,7 @@ class music(commands.Cog):
         i = 0
 
         fetched_data = self.sp.playlist_tracks(URI, offset=1+batch*25)["items"] if mode else self.sp.album_tracks(URI, offset=1+batch*25)["items"]
-        track = self.sp.album_tracks(URI)["items"][0]
+        #track = self.sp.album_tracks(URI)["items"][0]
         for track in fetched_data:
             tracks.append(track)
             i += 1
@@ -429,11 +430,13 @@ class music(commands.Cog):
     @commands.command(name="spot")
     async def spot(self, ctx:commands.Context, *args):
         self.ctx = ctx
-        fetch = self.sp.recommendations(seed_genres=['pop'], min_energy=0.90, max_speechiness=0.1, limit=1)
+        fetch = self.sp.recommendations(seed_genres=['pop'], limit=1)
         print(self.sp.audio_features(fetch["tracks"][0]["uri"]))
         await self.ctx.send(fetch["tracks"][0]["external_urls"]["spotify"])
-        await ctx.send("Sedí?", view=View_spot_buttons(self, timeout=None))
-    #learning:
+
+        await ctx.send("Co?", view=View_spot_buttons(self, timeout=None))
+        #await ctx.send("a", view=Feedback())
+        #await ctx.send("Sedí?", view=View_spot_buttons(self, timeout=None))
          
 
 
@@ -519,6 +522,27 @@ class View_spot_buttons(discord.ui.View):
     @discord.ui.button(label="No", style=discord.ButtonStyle.grey, emoji="❌")
     async def no_callback(self, interaction: discord.Interaction, button: discord.ui.button):
         await interaction.response.defer()
+
+class Feedback(discord.ui.Modal, title='Feedback'):
+
+    name = discord.ui.TextInput(
+        label='Name',
+        placeholder='Your name here...',
+    )
+
+    feedback = discord.ui.TextInput(
+        label='What do you think of this new feature?',
+        style=discord.TextStyle.long,
+        placeholder='Type your feedback here...',
+        required=False,
+        max_length=300,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f'Thanks for your feedback, {self.name.value}!', ephemeral=True)
+
+
+
 
 #converts seconds to MM:SS format
 def sec_min(seconds):
