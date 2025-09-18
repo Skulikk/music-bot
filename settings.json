@@ -1,0 +1,9 @@
+{
+    "dj_channel": "xxx",
+    "max_track_len": 3600,
+    "token": "xxx",
+    "file_name": "downloaded.m4a",
+    "spotify_id": "xxx",
+    "spotify_secret": "xxx",
+    "database_file": "music.txt"
+  }
